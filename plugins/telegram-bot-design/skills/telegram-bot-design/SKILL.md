@@ -150,42 +150,47 @@ text = "\n\n".join([
   (над «Информацией»): вид хранится per-user, Текст = обычный экран с `section()`/`kv()`.
 
 **Формат таблиц (ПОДТВЕРЖДЁННЫЙ дизайн-код, строго):**
-- **Зебра ВЫКЛЮЧЕНА** (`is_striped=False`). Чередование фона читается как чередование
-  шапок — выглядит так, будто каждая вторая строка заголовок. Всегда off.
-- **Сетка включена** (`is_bordered=True`) — рамки делают таблицу читаемой.
+- **Зебра ВЫКЛЮЧЕНА** (`is_striped=False`) ВСЕГДА. Чередование фона читается как
+  чередование шапок — будто каждая вторая строка заголовок.
+- **Рамки и компактность — по вкусу** (`is_bordered`, `is_compact`). Для раздела-настроек
+  подтверждён вид БЕЗ рамок и БЕЗ компактности (чистый список).
 - **Двухколоночная kv-таблица (Параметр | Значение):** строки-шапки ВНУТРИ НЕТ (её роль
-  выполняет `heading` сверху); **левая колонка (параметры) — ЖИРНЫЙ** (`RichTextBold`),
-  **правая (значения) — МОНО** (`RichTextCode`).
-- **Многоколоночная grid-таблица:** первая строка — ШАПКА с названиями столбцов
-  (`is_header=True`, жирная), ниже — обычные ОДИНАКОВЫЕ ячейки (plain).
-- **Кастом-эмодзи (`RichTextCustomEmoji`) в `heading` НЕ ставить:** смешанный список
-  `[эмодзи, текст]` ломает `sendRichMessage`, и таблица молча уходит в текстовый фолбэк.
-  В заголовке rich — обычный эмодзи; «живые» иконки пака в заголовках даёт только
-  текстовый вид (`section()`).
+  выполняет `heading` сверху); **параметры — ЖИРНЫЙ** (`RichTextBold`), **значения — МОНО**
+  (`RichTextCode`); **обе колонки по ЛЕВОМУ краю** (`align="left"`).
+- **Кастом-эмодзи В `heading` И В ЯЧЕЙКАХ РАБОТАЮТ** (подтверждено живым примером): текст
+  блока — СПИСОК `[RichTextCustomEmoji(custom_emoji_id, alternative_text), " текст"]`.
+  Плейн-строка как элемент списка допустима. Нормализуй селектор U+FE0F при поиске id в
+  паке. (Прежнее «ломает отправку» — НЕВЕРНО, то была другая причина.)
+- **Длинные значения (URL/email/токены) в таблицу НЕ класть** — короткий статус:
+  «установлена» / «не задана», «установлен» / «не настроен»; полное — в под-экране.
+- **Блок-цитата** в rich — `InputRichBlockBlockQuotation(blocks=[InputRichBlockParagraph(...)])`
+  (у цитаты нет своего `text`, только вложенные блоки): удобна для подсказки снизу.
 
 ```python
 from aiogram.types import (InputRichMessage, InputRichBlockSectionHeading,
-    InputRichBlockTable, RichBlockTableCell, RichTextBold, RichTextCode)
+    InputRichBlockTable, RichBlockTableCell, RichTextBold, RichTextCode,
+    RichTextCustomEmoji, InputRichBlockBlockQuotation, InputRichBlockParagraph)
 
-def cell(t, *, bold=False, code=False, header=False, align="left"):
+GEAR = "5904258298764334001"   # id иконки ⚙️ из пака (пример)
+
+def cell(t, *, bold=False, code=False):
     s = "" if t is None else str(t)
     rt = RichTextBold(text=s) if bold else RichTextCode(text=s) if code else s
-    return RichBlockTableCell(align=align, valign="middle", text=rt, is_header=header)
+    return RichBlockTableCell(align="left", valign="middle", text=rt)  # обе колонки слева
 
-# kv-таблица настроек: без строки-шапки, параметры жирный / значения моно
-table = InputRichBlockTable(cells=[
-    [cell("Google-таблица", bold=True), cell("не задана", code=True, align="right")],
-    [cell("Скорость отправки", bold=True), cell("15 сообщ/сек", code=True, align="right")],
-], is_bordered=True, is_striped=False)        # ← зебра OFF, рамки ON
+table = InputRichBlockTable(cells=[            # зебра OFF, рамок нет
+    [cell("Google-таблица", bold=True), cell("установлена", code=True)],
+    [cell("Скорость отправки", bold=True), cell("15 сообщ/сек", code=True)],
+], is_bordered=False, is_striped=False)
 
-await bot.send_rich_message(
-    chat_id=chat_id,
-    rich_message=InputRichMessage(blocks=[
-        InputRichBlockSectionHeading(text="⚙️ Настройки", size=1),  # обычный эмодзи, не custom
-        table,
-    ]),
-    reply_markup=markup,   # тумблеры/под-экраны + «Вид: Таблица/Текст»
-)
+await bot.send_rich_message(chat_id=chat_id, rich_message=InputRichMessage(blocks=[
+    # кастом-эмодзи в заголовке РАБОТАЕТ — список [эмодзи, " текст"]
+    InputRichBlockSectionHeading(text=[
+        RichTextCustomEmoji(custom_emoji_id=GEAR, alternative_text="⚙️"), " Настройки"], size=1),
+    table,
+    InputRichBlockBlockQuotation(blocks=[InputRichBlockParagraph(
+        text="Подсказка снизу — цитатой.")]),
+]), reply_markup=markup)
 ```
 
 Уместно: статистика профиля/рассылки, сводки, раздел настроек. Не уместно: интерактивные
@@ -384,11 +389,11 @@ async def cmd_menu(message, ...):
    боте (ведущий эмодзи метки по таблице, не «какой попало»); `style` только у важных
    действий (primary=Запустить, success=Пополнить, danger=Остановить); обычные кнопки
    нейтральны; значения строго primary|success|danger.
-5. **Таблицы**: данные-сводки/настройки — rich-таблицей; ЗЕБРА OFF (`is_striped=False`),
-   сетка ON; kv-таблица — без строки-шапки (заголовок `heading` сверху), параметры —
-   жирный, значения — моно; grid — первая строка шапка `is_header`, тело обычное;
-   кастом-эмодзи в `heading` НЕ ставить (ломает отправку); навигация «удалить + прислать
-   заново»; можно переключатель «Вид: Таблица/Текст» (дефолт Таблица).
+5. **Таблицы**: данные-сводки/настройки — rich-таблицей; ЗЕБРА OFF (`is_striped=False`);
+   kv — без строки-шапки (заголовок `heading` сверху), параметры жирный / значения моно,
+   обе колонки слева; кастом-эмодзи в `heading` И ячейках РАБОТАЮТ (список `[эмодзи,текст]`,
+   нормализуй селектор); длинные URL/токены → короткий статус; подсказка снизу — блок-цитата;
+   навигация «удалить + прислать заново»; переключатель «Вид: Таблица/Текст» (дефолт Таблица).
 6. **Анти-флуд (в целом)**: клики гаснут троттлингом + `callback.answer()`; навигация правит
    сообщение (edit), под-раздел ЗАМЕНЯЕТ родителя; ВВОД пользователя (команда `/start`·`/menu`
    и нажатие reply-кнопки «Меню») удаляется; команды меню затирают прошлое; прогресс — одно
@@ -417,9 +422,10 @@ async def cmd_menu(message, ...):
 
 - Эмодзи: пак tgiosicons, только кнопки + заголовки, не построчно, кастом — при Premium.
 - Текст: статика `b()`, переменные `mono()`/`kv()`, пояснение `quote()`, заголовок `section()`.
-- Таблицы: rich; ЗЕБРА OFF, сетка ON; kv без шапки (заголовок — `heading` сверху),
-  параметры жирный / значения моно; grid — шапка `is_header` + обычное тело; кастом-эмодзи
-  в `heading` НЕ ставить; «Закрыть» или навигация «удалить + прислать заново»; «Вид: Таблица/Текст».
+- Таблицы: rich; ЗЕБРА OFF; kv без шапки (заголовок — `heading` сверху), параметры жирный /
+  значения моно, обе колонки слева; кастом-эмодзи в `heading` и ячейках РАБОТАЮТ
+  (список `[эмодзи, " текст"]`); длинные значения → короткий статус; подсказка — блок-цитата;
+  «Закрыть» или навигация «удалить + прислать заново»; «Вид: Таблица/Текст».
 - Цвет: только важные — primary=старт, success=приход, danger=стоп.
 - Иконки кнопок: нормализовать селектор U+FE0F перед поиском в словаре (иначе плоский эмодзи).
 - Анти-флуд (в целом): троттлинг кликов + `callback.answer()`; edit на месте; команды меню
