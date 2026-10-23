@@ -1,6 +1,6 @@
 {
   "name": "telegram-bot-design",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Дизайн-код Telegram-ботов: кастом-эмодзи tgiosicons, жирный/моно/цитаты, таблицы rich-сообщений, цвет важных кнопок, анти-флуд — плюс обязательная проверка соответствия перед commit/push.",
   "author": {
     "name": "bacubelo24"
