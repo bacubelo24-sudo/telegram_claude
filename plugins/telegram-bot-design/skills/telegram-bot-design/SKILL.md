@@ -1,0 +1,269 @@
+---
+name: telegram-bot-design
+description: Дизайн-код Telegram-ботов — единый стиль интерфейса (кастом-эмодзи tgiosicons на кнопках и заголовках при Premium; жирный статик / моно переменные / цитаты-пояснения; таблицы rich-сообщений для статистики; цвет ТОЛЬКО на важные кнопки; анти-флуд с затиранием старых сообщений) и ОБЯЗАТЕЛЬНАЯ проверка соответствия перед commit/push. Use when creating or editing ANY Telegram bot interface — handlers, keyboards, message text, menus — or before committing such changes.
+---
+
+# Дизайн-код Telegram-ботов
+
+Единый визуальный стандарт для ВСЕХ наших Telegram-ботов (aiogram 3.x, parse_mode=HTML).
+Применяй его при создании или правке любого интерфейса бота: хендлеров, клавиатур,
+текстов сообщений, меню. Сверяйся с официальным changelog Bot API:
+https://core.telegram.org/bots/api-changelog
+
+## Когда применять
+
+- Создаёшь новый бот / новый раздел / новую команду.
+- Правишь текст сообщения, клавиатуру, меню, карточку.
+- ПЕРЕД каждым `git commit` / `git push` изменений интерфейса — прогнать проверку
+  соответствия (раздел «Проверка перед коммитом» ниже). Это обязательный шаг.
+
+---
+
+## 1. Кастом-эмодзи (только при Premium у владельца бота)
+
+Пак — **строго** `tgiosicons` (https://t.me/addemoji/tgiosicons). Другие паки не мешать.
+
+Правила:
+- Кастом-эмодзи ставятся ТОЛЬКО в двух местах: **(а) на inline-кнопках** и
+  **(б) в заголовках разделов**. Больше нигде.
+- **Запрет на эмодзи в каждой строке** текста. Тело сообщения — без эмодзи построчно
+  (никаких «📌 строка / 📍 строка / 💬 строка»). Эмодзи — акцент заголовка/кнопки, не декор.
+- Кастом-эмодзи доступны, ТОЛЬКО если у владельца бота есть Telegram Premium. Нет
+  Premium → обычные Unicode-эмодзи (тогда `icon_custom_emoji_id` НЕ ставить — API
+  отклонит запрос). Поэтому декорацию кастом-иконок включать по флагу `premium`.
+
+### Как ставятся (Bot API 9.4, поле `icon_custom_emoji_id`)
+
+Кнопка: кастом-эмодзи — отдельным полем `icon_custom_emoji_id`, НЕ через текст.
+Заголовок: кастом-эмодзи в тексте через HTML-тег `<tg-emoji emoji-id="ID">base</tg-emoji>`.
+
+```python
+# Заголовок раздела с кастом-эмодзи (в тексте):
+#   <tg-emoji emoji-id="6036...">📊</tg-emoji> <b>Статистика</b>
+# Кнопка с кастом-иконкой (отдельное поле):
+InlineKeyboardButton(text="Рассылка", callback_data="x",
+                     icon_custom_emoji_id="6039450962865688331")
+```
+
+Получить id иконок пака:
+```python
+st = await bot.get_sticker_set("tgiosicons")   # 399 иконок
+mapping = {s.emoji: s.custom_emoji_id for s in st.stickers}
+```
+
+### Рекомендуемая реализация — центральная middleware
+
+Чтобы не трогать сотни мест создания кнопок, подмена делается ЦЕНТРАЛЬНО — исходящей
+middleware сессии бота: если текст кнопки начинается с Unicode-эмодзи, у которого есть
+иконка в паке, эмодзи убирается из текста, а на кнопку ставится `icon_custom_emoji_id`.
+Трогать ТОЛЬКО чистые callback-кнопки (url/web_app/pay/login/switch пропускать — иначе
+Telegram может отклонить отправку всей клавиатуры).
+
+```python
+from aiogram.client.session.middlewares.base import BaseRequestMiddleware
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+_ICON = {"📨": "6039450962865688331", "📝": "5920046907782074235", ...}  # наш эмодзи → id пака
+
+class ButtonIconMiddleware(BaseRequestMiddleware):
+    async def __call__(self, make_request, bot, method):
+        rm = getattr(method, "reply_markup", None)
+        if isinstance(rm, InlineKeyboardMarkup):
+            method = method.model_copy(update={"reply_markup": _decorate(rm)})
+        return await make_request(bot, method)
+
+# bot.session.middleware(ButtonIconMiddleware())   # включать только при Premium
+```
+
+В заголовках — хелпер `section()` (см. п.2), который оборачивает эмодзи в `<tg-emoji>`.
+
+---
+
+## 2. Текст сообщений: жирный / моно / цитата
+
+Единственный источник форматирования — хелперы (не писать сырые теги в хендлерах):
+
+| Что | Оформление | Хелпер |
+|---|---|---|
+| Статичный текст (подписи, лейблы, инструкции) | **жирный** `<b>` | `b("текст")` |
+| Переменные (id, токены, номера, суммы, ответы API) | `моно` `<code>` | `mono(value)` |
+| Пояснение раздела | `цитата` `<blockquote>` | `quote("текст")` |
+| Заголовок раздела (единственное место эмодзи в тексте) | эмодзи + жирный | `section("📊", "Статистика")` |
+| Строка «Лейбл: значение» | жирный лейбл + моно значение | `kv("Баланс", "12.30$")` |
+
+```python
+from html import escape
+
+def b(text):      return f"<b>{escape(text)}</b>"
+def mono(v):      return f"<code>{escape(str(v))}</code>"
+def quote(text, expandable=False):
+    tag = "<blockquote expandable>" if expandable else "<blockquote>"
+    return f"{tag}{escape(text)}</blockquote>"
+def kv(label, v): return f"{b(label)}: {mono(v)}"
+def section(emoji, title):   # эмодзи рендерится как кастом (<tg-emoji>) при Premium
+    return f"{_emoji_html(emoji)} <b>{escape(title)}</b>"
+```
+
+### Пример правильного сообщения раздела
+
+```python
+text = "\n\n".join([
+    section("🔑", "Доступ к профилю"),
+    quote("Выдайте клиенту доступ к профилю на срок с суточным лимитом. "
+          "Ограниченный доступ видит только свои диалоги."),
+    kv("Профиль", prof.label),
+    kv("Номер", prof.phone),
+    kv("Лимит в сутки", limit),
+])
+```
+
+Так: заголовок — с эмодзи-акцентом; пояснение — цитатой; данные — `Лейбл: моно-значение`.
+НЕ ставить эмодзи в строках `kv(...)` и не делать весь текст жирным/моно сплошняком.
+
+---
+
+## 3. Таблицы (rich-сообщения) — там, где уместно
+
+Для данных (статистика, сводки, списки с колонками) используй **таблицы** Bot API
+(rich-сообщения `sendRichMessage` + `InputRichMessage.blocks`, Bot API 10.1/10.2),
+а не моноширинный «псевдо-ASCII». Таблица поддерживает `reply_markup` — шлётся с кнопками.
+
+**Важно (архитектура):** rich-сообщение — ОТДЕЛЬНОЕ сообщение, его НЕЛЬЗЯ редактировать
+на месте как обычные edit-навигируемые меню. Поэтому таблицу показывай как
+самостоятельное сообщение со своей кнопкой «Закрыть» (удаляет это сообщение), НЕ
+подменяя edit-навигацию меню.
+
+```python
+from aiogram.types import (InputRichMessage, InputRichBlockSectionHeading,
+    InputRichBlockParagraph, InputRichBlockTable, RichBlockTableCell)
+
+def cell(t, header=False, align="left"):
+    return RichBlockTableCell(align=align, valign="middle",
+                              text="" if t is None else str(t), is_header=header)
+
+table = InputRichBlockTable(cells=[
+    [cell("Метрика", True), cell("За всё время", True, "right")],
+    [cell("Отправлено"), cell("1 234", align="right")],
+    [cell("Доставлено"), cell("1 100 (89%)", align="right")],
+], is_bordered=True, is_striped=True)
+
+await bot.send_rich_message(
+    chat_id=chat_id,
+    rich_message=InputRichMessage(blocks=[
+        InputRichBlockSectionHeading(text="📊 Статистика", size=1),
+        InputRichBlockParagraph(text="Профиль Elisabeth — за сутки"),
+        table,
+    ]),
+    reply_markup=close_kb,   # кнопка «✖️ Закрыть»
+)
+```
+
+Уместно: статистика профиля/рассылки, сводки, результаты. Не уместно: интерактивные
+меню (их оставляем на inline-клавиатурах с edit-навигацией).
+
+---
+
+## 4. Цвет кнопок — ТОЛЬКО на важные (Bot API 9.4, поле `style`)
+
+Разрешены РОВНО три значения (прочее API отклоняет: «Invalid button style specified»):
+
+| Цвет | `style` | Для чего (важные акценты) |
+|---|---|---|
+| 🔵 Синий | `primary` | главный старт — например «Запустить рассылку» |
+| 🟢 Зелёный | `success` | деньги/приход — например «Пополнить баланс» |
+| 🔴 Красный | `danger` | стоп/прерывание — например «Остановить рассылку» |
+
+Правило: цвет — **акцент на ключевое действие**, а не раскраска всего. Обычные
+«Удалить / Подтвердить / Назад» остаются нейтральными. Один цветной акцент на экран.
+
+```python
+InlineKeyboardButton(text="Запустить рассылку", callback_data="go", style="primary")
+InlineKeyboardButton(text="Пополнить баланс",   callback_data="up", style="success")
+InlineKeyboardButton(text="Остановить",          callback_data="st", style="danger")
+```
+
+Можно раскатать через ту же `ButtonIconMiddleware` по узкому списку важных действий
+(substring по очищенному тексту метки), не перетирая явно заданный `style`.
+
+---
+
+## 5. Анти-флуд: затирание старых сообщений
+
+Повторные действия не должны плодить сообщения. Повторный `/menu` (и аналоги) должен
+**затирать** прошлое меню, а не создавать новое.
+
+- Навигация по разделам — через `edit_text` / `edit_caption` (правка на месте), не новые
+  сообщения.
+- Для команд, создающих новое сообщение (`/menu`, `/start`): хранить id последнего
+  такого сообщения на чат и удалять предыдущее перед отправкой нового; саму команду
+  (`/menu`) удалять; не дублировать служебные уведомления.
+
+```python
+_last_menu: dict[int, int] = {}   # chat_id → message_id
+
+async def send_menu(message, ...):
+    chat_id = message.chat.id
+    prev = _last_menu.pop(chat_id, None)
+    if prev:
+        try: await message.bot.delete_message(chat_id, prev)
+        except Exception: pass
+    sent = await message.answer_photo(...)   # или answer(...)
+    _last_menu[chat_id] = sent.message_id
+
+@router.message(Command("menu"))
+async def cmd_menu(message, ...):
+    try: await message.delete()              # убрать саму команду
+    except Exception: pass
+    await send_menu(message, ...)
+```
+
+Если нередактируемое сообщение (фото → текст нельзя edit_text): удалить и отправить
+заново (`delete` + `answer`), а не плодить.
+
+---
+
+## 6. Проверка перед коммитом (ОБЯЗАТЕЛЬНО)
+
+После КАЖДОГО обновления раздела или добавления функции — ПЕРЕД `git commit`/`git push`
+прогнать изменённый код по чек-листу и явно подтвердить соответствие (или починить).
+Не коммить, пока все пункты не ✅.
+
+Чек-лист (по изменённым файлам интерфейса):
+
+1. **Текст**: статика — через `b()`; переменные — через `mono()`/`kv()`; пояснения
+   раздела — через `quote()`. Нет сырых `<b>`/`<code>`/`<blockquote>` в хендлерах. Нет
+   «голого» текста там, где должен быть жирный/моно.
+2. **Заголовок**: ровно один `section("эмодзи","Название")` на экран; эмодзи только в нём.
+3. **Эмодзи**: нет эмодзи построчно в теле; кастом-эмодзи — только кнопки и заголовки;
+   пак только `tgiosicons`; при отсутствии Premium — кастом-иконки не ставятся.
+4. **Кнопки-цвет**: `style` только на важные действия (primary=старт/success=приход/
+   danger=стоп); не раскрашены обычные кнопки; значения строго primary|success|danger.
+5. **Таблицы**: данные-сводки — rich-таблицей со своей «Закрыть»; не ломают edit-навигацию.
+6. **Анти-флуд**: навигация правит сообщение (edit), команды меню затирают прошлое; нет
+   плодящихся дублей.
+7. **callback_data** не менялись без причины; длинные значения в пределах лимитов.
+8. Код компилируется и импортируется (`py_compile` + import), бот поднимается без ошибок.
+
+Процедура скана: прочитать diff изменённых хендлеров/клавиатур/текстов; пройтись по 1–8;
+перечислить несоответствия; ПОЧИНИТЬ; затем сверить спорные новые поля API с changelog
+(ссылка вверху). Только после «все ✅» — commit/push.
+
+Формат вывода проверки (кратко, в ответе пользователю перед коммитом):
+```
+Проверка дизайн-кода: раздел <имя>
+✅ текст (b/mono/quote)  ✅ заголовок  ✅ эмодзи  ✅ цвет кнопок
+✅ таблицы  ✅ анти-флуд  ✅ callback  ✅ сборка
+→ соответствует, коммичу.
+```
+Если что-то ❌ — сначала фикс, потом повтор проверки, и только потом commit/push.
+
+---
+
+## Краткий итог (шпаргалка)
+
+- Эмодзи: пак tgiosicons, только кнопки + заголовки, не построчно, кастом — при Premium.
+- Текст: статика `b()`, переменные `mono()`/`kv()`, пояснение `quote()`, заголовок `section()`.
+- Таблицы: rich-сообщения для статистики/сводок, со своей «Закрыть», без ломки edit-нав.
+- Цвет: только важные — primary=старт, success=приход, danger=стоп.
+- Анти-флуд: edit на месте; команды меню затирают прошлое; без дублей.
+- Перед commit/push: прогнать чек-лист п.6, починить, подтвердить, сверить с changelog.

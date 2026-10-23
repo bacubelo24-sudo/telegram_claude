@@ -1,0 +1,17 @@
+{
+  "name": "tg-bot-design",
+  "owner": {
+    "name": "bacubelo24"
+  },
+  "metadata": {
+    "description": "Маркетплейс с дизайн-кодом Telegram-ботов: единый стиль интерфейса и проверка соответствия перед коммитом.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "telegram-bot-design",
+      "source": "./plugins/telegram-bot-design",
+      "description": "Дизайн-код Telegram-ботов (эмодзи/цвета/таблицы/текст/анти-флуд) + обязательная проверка соответствия перед commit/push."
+    }
+  ]
+}
