@@ -1,6 +1,6 @@
 ---
 name: telegram-bot-design
-description: Дизайн-код Telegram-ботов — единый стиль интерфейса (кастом-эмодзи tgiosicons на кнопках и заголовках при Premium; жирный статик / моно переменные / цитаты-пояснения; таблицы rich-сообщений для статистики; цвет ТОЛЬКО на важные кнопки; анти-флуд с затиранием старых сообщений) и ОБЯЗАТЕЛЬНАЯ проверка соответствия перед commit/push. Use when creating or editing ANY Telegram bot interface — handlers, keyboards, message text, menus — or before committing such changes.
+description: Дизайн-код Telegram-ботов — единый стиль интерфейса (кастом-эмодзи tgiosicons на кнопках и заголовках при Premium; жирный статик / моно переменные / цитаты-пояснения; таблицы rich-сообщений для статистики; цвет ТОЛЬКО на важные кнопки; анти-флуд с затиранием старых сообщений) и ОБЯЗАТЕЛЬНАЯ проверка соответствия перед commit/push. Содержит ГОТОВЫЙ ПРЕСЕТ таблицы (rich-сообщение) — вызывай его при ЛЮБОМ запросе «сделай/покажи таблицу» в любом разделе. Use when creating or editing ANY Telegram bot interface — handlers, keyboards, message text, menus, OR rendering any data as a table — or before committing such changes.
 ---
 
 # Дизайн-код Telegram-ботов
@@ -134,6 +134,59 @@ text = "\n\n".join([
 ---
 
 ## 3. Таблицы (rich-сообщения) — там, где уместно
+
+> **ПРЕСЕТ (правило вызова).** Любой запрос вида «сделай таблицу в разделе X» /
+> «покажи это таблицей» → НЕ изобретай формат заново: возьми **готовый модуль-пресет
+> ниже** (`bot/services/rich.py`), положи его в проект (если ещё нет) и вызови его
+> функции. Все правила формата (зебра off, параметры жирный / значения моно, обе
+> колонки слева, кастом-эмодзи в heading, статусы вместо длинных значений, цитата-
+> подсказка) уже зашиты в пресет — на всех таблицах проекта формат будет одинаковым.
+
+**Готовый пресет — скопировать в `bot/services/rich.py`:**
+
+```python
+from aiogram import Bot
+from aiogram.types import (InputRichMessage, InputRichBlockSectionHeading,
+    InputRichBlockTable, RichBlockTableCell, RichTextBold, RichTextCode,
+    RichTextCustomEmoji, InputRichBlockParagraph, InputRichBlockBlockQuotation,
+    InlineKeyboardMarkup)
+from bot.utils.tgicons import ICONS as _PACK        # эмодзи → custom_emoji_id пака
+_NORM = {k.replace("️", "").replace("⃣", ""): v for k, v in _PACK.items()}
+
+def _cid(e): return _NORM.get((e or "").replace("️", "").replace("⃣", ""))
+
+def _emoji(e, label):                                 # [кастом-иконка, " текст"] | текст
+    cid = _cid(e) if e else None
+    return [RichTextCustomEmoji(custom_emoji_id=cid, alternative_text=e), " " + str(label)] \
+        if cid else (f"{e} {label}" if e else str(label))
+
+def heading(text, size=1, emoji=None):
+    return InputRichBlockSectionHeading(text=_emoji(emoji, text), size=size)
+
+def quote_block(text):                                # подсказка-цитата снизу
+    return InputRichBlockBlockQuotation(blocks=[InputRichBlockParagraph(text=str(text))])
+
+def kv_table(rows):                                   # (параметр, значение) — ЕДИНЫЙ вид
+    cells = [[RichBlockTableCell(align="left", valign="middle", text=RichTextBold(text=str(k))),
+              RichBlockTableCell(align="left", valign="middle", text=RichTextCode(text=str(v)))]
+             for k, v in rows]
+    return InputRichBlockTable(cells=cells, is_bordered=False, is_striped=False)  # зебра/рамки OFF
+
+async def send_rich(bot: Bot, chat_id, blocks, reply_markup: InlineKeyboardMarkup | None = None):
+    return await bot.send_rich_message(chat_id=chat_id,
+        rich_message=InputRichMessage(blocks=blocks), reply_markup=reply_markup)
+```
+
+**Вызов (так во ВСЕХ разделах — один формат):**
+
+```python
+await send_rich(bot, chat_id, [
+    heading("Настройки", emoji="⚙️"),             # кастом-иконка в заголовке
+    kv_table([("Google-таблица", "установлена"),  # длинные URL/токены → короткий статус
+              ("Скорость отправки", "15 сообщ/сек")]),
+    quote_block("Подсказка снизу — цитатой."),
+], reply_markup=markup)
+```
 
 Для данных (статистика, сводки, списки с колонками) используй **таблицы** Bot API
 (rich-сообщения `sendRichMessage` + `InputRichMessage.blocks`, Bot API 10.1/10.2),
