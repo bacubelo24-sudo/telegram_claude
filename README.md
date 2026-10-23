@@ -14,20 +14,20 @@ Telegram-ботов (aiogram 3.x, HTML) + обязательная провер�
 
 ## Подключить «откуда угодно»
 
-1. Запушить этот каталог в свой GitHub-репозиторий (например `bacubelo24-sudo/tg-bot-design`):
-   ```bash
-   cd tg-bot-design
-   git init && git add -A && git commit -m "tg-bot-design skill v1"
-   git branch -M main
-   git remote add origin https://github.com/bacubelo24-sudo/tg-bot-design.git
-   git push -u origin main
-   ```
-2. В любом проекте/машине подключить маркетплейс и установить плагин:
-   ```
-   /plugin marketplace add bacubelo24-sudo/tg-bot-design
-   /plugin install telegram-bot-design@tg-bot-design
-   ```
-   (приватный репозиторий — нужен доступ GitHub у клиента).
+Публичный репозиторий: https://github.com/bacubelo24-sudo/telegram_claude
+
+В любом проекте/машине подключить маркетплейс и установить плагин:
+```
+/plugin marketplace add bacubelo24-sudo/telegram_claude
+/plugin install telegram-bot-design@tg-bot-design
+```
+Имя маркетплейса берётся из `.claude-plugin/marketplace.json` (`tg-bot-design`),
+поэтому установка идёт как `telegram-bot-design@tg-bot-design`.
+
+Если `marketplace add` по короткому пути падает на SSH host key — используйте HTTPS-URL:
+```
+/plugin marketplace add https://github.com/bacubelo24-sudo/telegram_claude.git
+```
 
 ## Локально (эта машина, без маркетплейса)
 
